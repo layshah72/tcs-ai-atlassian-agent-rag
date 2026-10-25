@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import re
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -20,23 +20,17 @@ from atlassian_chatbot.call_logging import (
 from atlassian_chatbot.config import AppConfig
 from atlassian_chatbot.mcp.connection import create_mcp_client
 from .policy import (
-    APPROVAL_REQUIRED_TOOLS,
-    READ_ONLY_TOOLS,
-    canonical_tool_name,
     exception_details,
     find_mcp_tool,
     inject_site_context,
+    is_write_tool,
     tool_result_text,
 )
 from .tools import make_draft_tool, make_read_tool
-from atlassian_chatbot.prompts import INDEXED_READ_SYSTEM_PROMPT, SYSTEM_PROMPT, build_system_prompt
+from atlassian_chatbot.prompts import INDEXED_READ_SYSTEM_PROMPT, build_system_prompt
 from atlassian_chatbot.rag import AtlassianFaissStore, get_embedding_model, make_retrieval_tool
 
-_WRITE_REQUEST_PATTERN = re.compile(
-    r"^(?:please\s+|can you\s+|could you\s+|would you\s+|i want you to\s+|help me\s+)?"
-    r"(?:to\s+)?(?:create|update|edit|change|modify|assign|move|transition|close|reopen)\b",
-    re.IGNORECASE,
-)
+logger = logging.getLogger(__name__)
 
 
 class AgentError(RuntimeError):
@@ -50,26 +44,14 @@ class AgentResult:
 
 
 class AtlassianAgent:
-    """LangChain agent backed by AWS Bedrock and allowlisted Atlassian MCP tools."""
+    """LangChain agent backed by Amazon Bedrock and all available Atlassian MCP tools."""
 
     def __init__(self, config: AppConfig):
         self.config = config
-        from langchain_aws import ChatBedrock
         import boto3
-        import os
-
-        # Use explicit credentials if provided, otherwise default
-        kwargs = {'region_name': config.bedrock_region}
-        if os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'):
-            kwargs['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
-            kwargs['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        
-        bedrock_client = boto3.client('bedrock-runtime', **kwargs)
-        
-        self.llm = ChatBedrock(
-            model_id=config.bedrock_model_id,
-            client=bedrock_client
-        )
+        from langchain_aws import ChatBedrock
+        bedrock_client = boto3.client("bedrock-runtime", region_name=config.bedrock_region)
+        self.llm = ChatBedrock(model_id=config.bedrock_model_id, client=bedrock_client)
 
     def answer(
         self,
@@ -91,52 +73,44 @@ class AtlassianAgent:
         if document_store is None:
             document_store = AtlassianFaissStore(embedding_model=get_embedding_model())
         has_indexed_data = document_store.chunk_count > 0
-        write_request = bool(_WRITE_REQUEST_PATTERN.search(prompt.strip()))
-        tools: list[BaseTool] = []
         system_prompt = build_system_prompt(self.config)
 
-        # A populated session index is the source of truth for read-only prompts.
-        # Write requests always discover MCP tools so approval-gated tools are available.
-        if has_indexed_data and not write_request:
-            tools.append(make_retrieval_tool(document_store))
-            system_prompt = f"{INDEXED_READ_SYSTEM_PROMPT}\n{system_prompt}"
-        else:
-            try:
-                client = create_mcp_client(self.config)
-                mcp_tools = await client.get_tools(server_name="atlassian")
-            except Exception as exc:
-                raise AgentError(f"Could not load Atlassian MCP tools: {exception_details(exc)}") from exc
+        try:
+            client = create_mcp_client(self.config)
+            mcp_tools = await client.get_tools(server_name="atlassian")
+        except Exception as exc:
+            raise AgentError(f"Could not load Atlassian MCP tools: {exception_details(exc)}") from exc
 
-            discovered_names = [tool.name for tool in mcp_tools]
-            for mcp_tool in mcp_tools:
-                name = canonical_tool_name(mcp_tool.name)
-                if name is None:
-                    continue
-                if name in APPROVAL_REQUIRED_TOOLS:
-                    tools.append(
-                        make_draft_tool(
-                            mcp_tool,
-                            pending_actions,
-                            public_name=name,
-                            config=self.config,
-                        )
-                    )
-                elif name in READ_ONLY_TOOLS:
-                    tools.append(
-                        make_read_tool(
-                            mcp_tool,
-                            name,
-                            self.config,
-                            document_store=document_store,
-                        )
-                    )
+        logger.debug("MCP tools discovered: %s", [t.name for t in mcp_tools])
 
-            if not tools:
-                raise AgentError(
-                    "The MCP server connected, but none of its tools match the supported Jira/Confluence "
-                    f"tools. Discovered: {', '.join(discovered_names) or '(none)'}."
+        tools: list[BaseTool] = []
+        for mcp_tool in mcp_tools:
+            if is_write_tool(mcp_tool.name):
+                tools.append(
+                    make_draft_tool(
+                        mcp_tool,
+                        pending_actions,
+                        public_name=mcp_tool.name,
+                        config=self.config,
+                    )
                 )
-            tools.append(make_retrieval_tool(document_store))
+            else:
+                tools.append(
+                    make_read_tool(
+                        mcp_tool,
+                        mcp_tool.name,
+                        self.config,
+                        document_store=document_store,
+                    )
+                )
+
+        if not tools:
+            raise AgentError("The MCP server returned no tools.")
+
+        tools.append(make_retrieval_tool(document_store))
+        if has_indexed_data:
+            system_prompt = f"{INDEXED_READ_SYSTEM_PROMPT}\n{system_prompt}"
+
         agent = create_agent(self.llm, tools, system_prompt=system_prompt)
         messages: list[BaseMessage] = []
         for entry in history[-12:]:
@@ -156,7 +130,7 @@ class AtlassianAgent:
         except Exception as exc:
             detail = str(exc)
             if "credentials" in detail.lower() or "access denied" in detail.lower():
-                detail = "AWS Bedrock authentication failed. Ensure AWS credentials are configured and have bedrock:InvokeModel permissions."
+                detail = "AWS Bedrock authentication failed. Ensure AWS credentials are configured and have bedrock:InvokeModel permission."
             raise AgentError(f"LangChain agent run failed: {detail}") from exc
         finally:
             reset_current_prompt(prompt_token)
@@ -172,15 +146,12 @@ class AtlassianAgent:
     def execute_approved_action(
         self, name: str, arguments: Mapping[str, Any], *, prompt: str | None = None
     ) -> str:
-        if name not in APPROVAL_REQUIRED_TOOLS:
-            raise AgentError(f"Tool '{name}' is not an approval-gated Jira write action.")
         return asyncio.run(self._execute_tool(name, dict(arguments), prompt=prompt))
 
     @staticmethod
     def _alias_tool(
         mcp_tool: BaseTool, public_name: str, config: AppConfig | None = None
     ) -> BaseTool:
-        """Retain the former helper API while delegating to the tool factory."""
         return make_read_tool(mcp_tool, public_name, config)
 
     @staticmethod
@@ -191,7 +162,6 @@ class AtlassianAgent:
         public_name: str | None = None,
         config: AppConfig | None = None,
     ) -> BaseTool:
-        """Retain the former helper API while delegating to the draft tool factory."""
         return make_draft_tool(
             mcp_tool, pending_actions, public_name=public_name, config=config
         )
@@ -219,4 +189,4 @@ class AtlassianAgent:
         except AgentError:
             raise
         except Exception as exc:
-            raise AgentError(f"Could not execute the approved Jira action: {exc}") from exc
+            raise AgentError(f"Could not execute the approved action: {exc}") from exc

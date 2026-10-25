@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any, Mapping
 
 from langchain_core.tools import BaseTool
@@ -9,44 +10,20 @@ from pydantic import Field, create_model
 
 from atlassian_chatbot.config import AppConfig
 
-ALLOWED_TOOLS = {
-    # Confluence read
-    "confluence_search", "confluence_get_page", "confluence_get_page_children",
-    # Confluence write
-    "confluence_create_page", "confluence_update_page",
-    # Jira read
-    "jira_search", "jira_get_issue", "jira_get_project_issues",
-    # Jira write
-    "jira_create_issue", "jira_update_issue",
-}
-MCP_TOOL_ALIASES = {
-    "searchConfluence": "confluence_search",
-    "getConfluenceContent": "confluence_get_page",
-    "getConfluencePageChildren": "confluence_get_page_children",
-    "createConfluencePage": "confluence_create_page",
-    "updateConfluencePage": "confluence_update_page",
-    "getJiraIssue": "jira_get_issue",
-    "searchJiraIssuesUsingJql": "jira_search",
-    "createJiraIssue": "jira_create_issue",
-    "editJiraIssue": "jira_update_issue",
-}
-APPROVAL_REQUIRED_TOOLS = {
-    "jira_create_issue", "jira_update_issue",
-    "confluence_create_page", "confluence_update_page",
-}
-READ_ONLY_TOOLS = ALLOWED_TOOLS - APPROVAL_REQUIRED_TOOLS
+_WRITE_TOOL_PATTERN = re.compile(
+    r"create|update|edit|delete|add|remove|transition|assign|move|close|reopen",
+    re.IGNORECASE,
+)
 
 
-def canonical_tool_name(mcp_name: str) -> str | None:
-    """Map published Atlassian tool names to the app's stable names."""
-    return mcp_name if mcp_name in ALLOWED_TOOLS else MCP_TOOL_ALIASES.get(mcp_name)
+def is_write_tool(tool_name: str) -> bool:
+    """Return True if the tool name suggests a write/mutating operation."""
+    return bool(_WRITE_TOOL_PATTERN.search(tool_name))
 
 
-def find_mcp_tool(tools: list[BaseTool], canonical_name: str) -> BaseTool | None:
-    """Find a server tool by app-facing name, including known Atlassian aliases."""
-    remote_names = [remote for remote, app in MCP_TOOL_ALIASES.items() if app == canonical_name]
-    remote_names.append(canonical_name)
-    return next((tool for tool in tools if tool.name in remote_names), None)
+def find_mcp_tool(tools: list[BaseTool], name: str) -> BaseTool | None:
+    """Find a tool by exact name."""
+    return next((tool for tool in tools if tool.name == name), None)
 
 
 def site_context_value(field_name: str, config: AppConfig) -> str | None:
