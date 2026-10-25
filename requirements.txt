@@ -1,0 +1,13 @@
+streamlit>=1.40,<2
+mcp>=1.2,<2
+groq>=0.11,<1
+langchain>=1.0,<2
+langchain-groq>=1.0,<2
+langchain-mcp-adapters>=0.1,<1
+pydantic>=2,<3
+faiss-cpu>=1.12,<2
+fastembed>=0.9,<1
+numpy>=1.25,<3
+python-dotenv>=1.0,<2
+cryptography>=42,<45
+pytest>=8,<9
