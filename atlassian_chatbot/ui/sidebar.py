@@ -70,7 +70,8 @@ def render_sidebar(config: AppConfig, *, persist_dir: "Path | None" = None) -> A
         )
         labels = {"oauth2": "OAuth 2.0", "bearer": "Bearer access token", "basic": "Personal API token (Basic)"}
         st.caption(f"Atlassian authentication: **{labels[auth_type]}**")
-        st.caption(f"Groq model: **{config.groq_model}**")
+        st.caption(f"Bedrock model: **{config.bedrock_model_id}**")
+        st.caption(f"AWS region: **{config.bedrock_region}**")
         st.divider()
         st.subheader("Knowledge index")
         if st.session_state.rag_store is not None:

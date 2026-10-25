@@ -50,13 +50,26 @@ class AgentResult:
 
 
 class AtlassianAgent:
-    """LangChain agent backed by Groq and allowlisted Atlassian MCP tools."""
+    """LangChain agent backed by AWS Bedrock and allowlisted Atlassian MCP tools."""
 
     def __init__(self, config: AppConfig):
         self.config = config
-        from langchain_groq import ChatGroq
+        from langchain_aws import ChatBedrock
+        import boto3
+        import os
 
-        self.llm = ChatGroq(api_key=config.groq_api_key, model=config.groq_model)
+        # Use explicit credentials if provided, otherwise default
+        kwargs = {'region_name': config.bedrock_region}
+        if os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'):
+            kwargs['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
+            kwargs['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
+        
+        bedrock_client = boto3.client('bedrock-runtime', **kwargs)
+        
+        self.llm = ChatBedrock(
+            model_id=config.bedrock_model_id,
+            client=bedrock_client
+        )
 
     def answer(
         self,
@@ -142,8 +155,8 @@ class AtlassianAgent:
             )
         except Exception as exc:
             detail = str(exc)
-            if "invalid_api_key" in detail.lower() or "invalid api key" in detail.lower():
-                detail = "Groq rejected GROQ_API_KEY. Put a current, valid Groq API key in .env, then restart Streamlit."
+            if "credentials" in detail.lower() or "access denied" in detail.lower():
+                detail = "AWS Bedrock authentication failed. Ensure AWS credentials are configured and have bedrock:InvokeModel permissions."
             raise AgentError(f"LangChain agent run failed: {detail}") from exc
         finally:
             reset_current_prompt(prompt_token)

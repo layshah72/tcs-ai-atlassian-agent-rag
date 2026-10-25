@@ -18,8 +18,8 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class AppConfig:
-    groq_api_key: str
-    groq_model: str
+    bedrock_region: str
+    bedrock_model_id: str
     mcp_transport: str
     mcp_url: str | None
     atlassian_site_url: str | None
@@ -38,11 +38,8 @@ class AppConfig:
 
     @classmethod
     def from_environment(cls) -> "AppConfig":
-        api_key = os.getenv("GROQ_API_KEY", "").strip()
-        if not api_key:
-            raise ConfigError("GROQ_API_KEY is not configured.")
-        if api_key.lower().startswith(("replace-", "your-", "put-", "enter-")):
-            raise ConfigError("GROQ_API_KEY is still a placeholder. Replace it in .env with a valid Groq API key.")
+        region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")).strip()
+        model_id = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0").strip()
 
         transport = os.getenv("ATLASSIAN_MCP_TRANSPORT", "streamable-http").strip().lower()
         if transport not in {"streamable-http", "stdio"}:
@@ -133,8 +130,8 @@ class AppConfig:
             raise ConfigError("MCP timeout and AGENT_MAX_TOOL_ROUNDS must be positive.")
 
         return cls(
-            groq_api_key=api_key,
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip(),
+            bedrock_region=region,
+            bedrock_model_id=model_id,
             mcp_transport=transport,
             mcp_url=url,
             atlassian_site_url=site_url,

@@ -31,7 +31,7 @@ try:
     app_config = AppConfig.from_environment()
 except ConfigError as exc:
     st.error(str(exc))
-    st.info("Copy .env.example to .env and configure the Atlassian MCP endpoint and LLM API key.")
+    st.info("Copy .env.example to .env and configure the Atlassian MCP endpoint and AWS credentials.")
     st.stop()
 
 import os
