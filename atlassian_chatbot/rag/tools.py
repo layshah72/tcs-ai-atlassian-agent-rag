@@ -37,3 +37,4 @@ def make_retrieval_tool(store: AtlassianFaissStore) -> StructuredTool:
         ),
     )
     return tool
+

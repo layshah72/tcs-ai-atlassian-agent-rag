@@ -2,7 +2,7 @@
 
 A Streamlit chat interface that queries Jira and Confluence through an Atlassian MCP server. Jira issue creation and updates are staged as drafts; the app does not execute either write operation unless a user clicks **Approve and execute**.
 
-The chat agent uses LangChain `create_agent`, the Groq chat model integration, and `langchain-mcp-adapters` to discover and call Atlassian MCP tools.
+The chat agent uses LangChain `create_agent`, the Amazon Bedrock chat model integration, and `langchain-mcp-adapters` to discover and call Atlassian MCP tools.
 
 ## Code structure
 
@@ -18,7 +18,7 @@ The chat agent uses LangChain `create_agent`, the Groq chat model integration, a
 ## Requirements
 
 - Python 3.10+
-- A Groq API key. Create one in the [Groq Console](https://console.groq.com/keys).
+- AWS credentials with access to Amazon Bedrock. Ensure your IAM user or role has the `bedrock:InvokeModel` permission. See the [Amazon Bedrock documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/getting-started.html).
 - An Atlassian MCP endpoint that exposes the Jira and Confluence tools below, with authorization configured for your Atlassian account
 
 The app only makes available the supported Jira/Confluence operations. Atlassian's hosted MCP currently publishes names such as `searchConfluence`, `getConfluenceContent`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `createJiraIssue`, and `editJiraIssue`; the app maps those to its stable tool names. Unknown and generic tools (including `executeWrite` and `executeDestructive`) are excluded. Jira create/edit stay approval-gated.
@@ -27,7 +27,7 @@ The app only makes available the supported Jira/Confluence operations. Atlassian
 
 1. Create and activate a virtual environment.
 2. Install packages from `requirements.txt`.
-3. Copy `.env.example` to `.env` and set `GROQ_API_KEY`, `ATLASSIAN_MCP_TRANSPORT`, and the MCP connection settings. `GROQ_MODEL` defaults to `llama-3.3-70b-versatile`; change it to a model currently enabled for your Groq account if needed.
+3. Copy `.env.example` to `.env` and set `AWS_REGION`, `BEDROCK_MODEL_ID`, `ATLASSIAN_MCP_TRANSPORT`, and the MCP connection settings. `BEDROCK_MODEL_ID` defaults to `anthropic.claude-3-5-sonnet-20241022-v2:0`; change it to a model enabled in your AWS account and region. Optionally set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if not using instance/profile credentials.
 4. Configure the Atlassian site once in `.env`: set `ATLASSIAN_SITE_URL=https://<your-site-name>.atlassian.net`. At startup, the app requests `https://<your-site-name>.atlassian.net/_edge/tenant_info` and reads `cloudId`. If you already know it, set `ATLASSIAN_CLOUD_ID` directly instead and omit the site URL. The app supplies this configured site/cloud ID to MCP tools that request it, so the agent should not ask which Jira or Confluence site to use.
 5. For Atlassian's hosted MCP server, set `ATLASSIAN_MCP_TRANSPORT=streamable-http`, `ATLASSIAN_MCP_URL=https://mcp.atlassian.com/v2/mcp`, and `ATLASSIAN_MCP_AUTH_TYPE=oauth2`. The sidebar also lets you switch authentication methods at runtime: OAuth 2.0 browser sign-in, a Bearer access token, or a personal API token with account email using Basic auth. Entered tokens are password-masked and retained only in the current Streamlit session; alternatively, configure `ATLASSIAN_MCP_BEARER_TOKEN`, `ATLASSIAN_MCP_EMAIL`, and `ATLASSIAN_MCP_PERSONAL_API_TOKEN` in `.env`. OAuth tokens and client registration are encrypted with Windows DPAPI for the current Windows user and stored under `%LOCALAPPDATA%\\TCS-Confluent-chatbot\\oauth`. The local app uses one persistent credential namespace and is intended for a single user.
 
