@@ -63,8 +63,8 @@ class AtlassianIngestionPipeline:
         except Exception as exc:
             raise IngestionError(f"Could not load Atlassian MCP tools: {exc}") from exc
 
-        jira_tool = _find_tool(tools, "jira_search")
-        confluence_tool = _find_tool(tools, "confluence_search")
+        jira_tool = _find_search_tool(tools, "jira")
+        confluence_tool = _find_search_tool(tools, "confluence")
         if jira_tool is None:
             raise IngestionError("The MCP server does not expose the supported Jira search tool.")
         if confluence_tool is None:
@@ -120,11 +120,10 @@ class AtlassianIngestionPipeline:
         return IngestionResult(replacement_store, jira_chunks, confluence_chunks)
 
 
-def _find_tool(tools: list[BaseTool], canonical_name: str) -> BaseTool | None:
-    from atlassian_chatbot.agent.policy import canonical_tool_name
-
+def _find_search_tool(tools: list[BaseTool], source: str) -> BaseTool | None:
+    name_lower = source.lower()
     return next(
-        (tool for tool in tools if canonical_tool_name(tool.name) == canonical_name),
+        (t for t in tools if name_lower in t.name.lower() and "search" in t.name.lower()),
         None,
     )
 

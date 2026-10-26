@@ -75,40 +75,23 @@ class AtlassianAgent:
         has_indexed_data = document_store.chunk_count > 0
         system_prompt = build_system_prompt(self.config)
 
-        try:
-            client = create_mcp_client(self.config)
-            mcp_tools = await client.get_tools(server_name="atlassian")
-        except Exception as exc:
-            raise AgentError(f"Could not load Atlassian MCP tools: {exception_details(exc)}") from exc
+        tools: list[BaseTool] = [make_retrieval_tool(document_store)]
+        if not has_indexed_data:
+            try:
+                client = create_mcp_client(self.config)
+                mcp_tools = await client.get_tools(server_name="atlassian")
+            except Exception as exc:
+                raise AgentError(f"Could not load Atlassian MCP tools: {exception_details(exc)}") from exc
 
-        logger.debug("MCP tools discovered: %s", [t.name for t in mcp_tools])
-
-        tools: list[BaseTool] = []
-        for mcp_tool in mcp_tools:
-            if is_write_tool(mcp_tool.name):
-                tools.append(
-                    make_draft_tool(
-                        mcp_tool,
-                        pending_actions,
-                        public_name=mcp_tool.name,
-                        config=self.config,
-                    )
-                )
-            else:
-                tools.append(
-                    make_read_tool(
-                        mcp_tool,
-                        mcp_tool.name,
-                        self.config,
-                        document_store=document_store,
-                    )
-                )
-
-        if not tools:
-            raise AgentError("The MCP server returned no tools.")
-
-        tools.append(make_retrieval_tool(document_store))
-        if has_indexed_data:
+            logger.debug("MCP tools discovered: %s", [t.name for t in mcp_tools])
+            for mcp_tool in mcp_tools:
+                if is_write_tool(mcp_tool.name):
+                    tools.append(make_draft_tool(mcp_tool, pending_actions, public_name=mcp_tool.name, config=self.config))
+                else:
+                    tools.append(make_read_tool(mcp_tool, mcp_tool.name, self.config, document_store=document_store))
+            if len(tools) == 1:
+                raise AgentError("The MCP server returned no tools.")
+        else:
             system_prompt = f"{INDEXED_READ_SYSTEM_PROMPT}\n{system_prompt}"
 
         agent = create_agent(self.llm, tools, system_prompt=system_prompt)

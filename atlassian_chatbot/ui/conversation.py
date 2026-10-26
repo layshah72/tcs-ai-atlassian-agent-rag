@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import streamlit as st
 
 from atlassian_chatbot.agent import AgentError, AtlassianAgent
@@ -8,7 +9,10 @@ from atlassian_chatbot.rag import AtlassianFaissStore
 
 
 def render_conversation(
-    config: AppConfig, *, document_store: AtlassianFaissStore | None = None
+    config: AppConfig,
+    *,
+    document_store: AtlassianFaissStore | None = None,
+    persist_dir: Path | None = None,
 ) -> None:
     """Render chat history, approval actions, and the current prompt workflow."""
     for message in st.session_state.messages:
@@ -36,6 +40,8 @@ def render_conversation(
             st.markdown(result.text)
             st.session_state.pending_actions.extend(result.pending_actions)
             st.session_state.messages.append({"role": "assistant", "content": result.text})
+            if document_store is not None and persist_dir is not None and document_store.chunk_count > 0:
+                document_store.save(persist_dir)
             if result.pending_actions:
                 st.rerun()
         except (AgentError, ConfigError) as exc:

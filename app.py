@@ -36,7 +36,7 @@ except ConfigError as exc:
 
 import os
 from pathlib import Path
-from atlassian_chatbot.rag.vector_store import AtlassianFaissStore
+from atlassian_chatbot.rag.store import AtlassianFaissStore
 
 _PERSIST_DIR = Path(
     os.getenv("LOCALAPPDATA")
@@ -49,14 +49,9 @@ if "messages" not in st.session_state:
 if "pending_actions" not in st.session_state:
     st.session_state.pending_actions = []
 if "rag_store" not in st.session_state:
-    st.session_state.rag_store = AtlassianFaissStore.load(_PERSIST_DIR)
-elif st.session_state.rag_store is not None and getattr(
-    st.session_state.rag_store, "index_version", None
-) != 2:
-    # Drop pre-validation indexes which may contain MCP validation error text.
-    st.session_state.rag_store = None
-    st.session_state.pop("rag_last_refresh", None)
+    loaded = AtlassianFaissStore.load(_PERSIST_DIR)
+    st.session_state.rag_store = loaded if loaded and getattr(loaded, "index_version", None) == AtlassianFaissStore.INDEX_VERSION else None
 
 active_config = render_sidebar(app_config, persist_dir=_PERSIST_DIR)
-render_conversation(active_config, document_store=st.session_state.rag_store)
+render_conversation(active_config, document_store=st.session_state.rag_store, persist_dir=_PERSIST_DIR)
 st.caption("Connected tools are limited to the configured Atlassian Jira and Confluence MCP tools.")
